@@ -1,44 +1,63 @@
-import puppeteer from 'puppeteer';
-import * as XLSX from 'xlsx-js-style';;
+import { fetchFinancialReport } from './api';
+import { determineLatestQ4Year, generateYearRange } from '../utils/dateUtils';
+import { REPORT_TYPES } from './types';
+import { processBalanceSheetData } from './processors/balanceSheetProcessor';
+import { processIncomeStatementData } from './processors/incomeStatementProcessor';
+import { processCashFlowData } from './processors/cashFlowProcessor';
+import * as XLSX from 'xlsx-js-style';
 
 export async function scrapeFinancialData(companyId) {
-  const browser = await puppeteer.launch();
-  const page = await browser.newPage();
-  
   try {
-    // Navigate to initial page
-    await page.goto(`https://mopsplus.twse.com.tw/mops/#/web/t146sb05?companyId=${companyId}`);
-    
-    // Wait for and click the financial report tab
-    await page.waitForSelector('#tab-financial-report');
-    await page.click('#tab-financial-report');
+    const latestYear = determineLatestQ4Year();
+    const years = generateYearRange(latestYear);
     
     const reports = {
-      balanceSheet: [],
-      incomeStatement: [],
-      cashFlow: []
+      資產負債表: await scrapeBalanceSheet(companyId, years),
+      綜合損益表: await scrapeIncomeStatement(companyId, years),
+      現金流量表: await scrapeCashFlow(companyId, years)
     };
-    
-    // Scrape each report type
-    reports.balanceSheet = await scrapeBalanceSheet(page, companyId);
-    reports.incomeStatement = await scrapeIncomeStatement(page, companyId);
-    reports.cashFlow = await scrapeCashFlow(page, companyId);
-    
-    // Generate Excel file
-    const workbook = XLSX.utils.book_new();
-    
-    Object.entries(reports).forEach(([sheetName, data]) => {
-      const worksheet = XLSX.utils.json_to_sheet(data);
-      XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-    });
-    
-    return workbook;
-  } finally {
-    await browser.close();
+
+    return generateExcelWorkbook(reports);
+  } catch (error) {
+    console.error('Error scraping financial data:', error);
+    throw new Error('資料擷取失敗');
   }
 }
 
-async function scrapeBalanceSheet(page, companyId) {
-  // Implementation for balance sheet scraping
-  // Similar pattern for other report types
+async function scrapeBalanceSheet(companyId, years) {
+  const data = [];
+  for (const year of years) {
+    const report = await fetchFinancialReport(companyId, year, REPORT_TYPES.BALANCE_SHEET);
+    data.push(processBalanceSheetData(report, year));
+  }
+  return data;
+}
+
+async function scrapeIncomeStatement(companyId, years) {
+  const data = [];
+  for (const year of years) {
+    const report = await fetchFinancialReport(companyId, year, REPORT_TYPES.INCOME_STATEMENT);
+    data.push(processIncomeStatementData(report, year));
+  }
+  return data;
+}
+
+async function scrapeCashFlow(companyId, years) {
+  const data = [];
+  for (const year of years) {
+    const report = await fetchFinancialReport(companyId, year, REPORT_TYPES.CASH_FLOW);
+    data.push(processCashFlowData(report, year));
+  }
+  return data;
+}
+
+function generateExcelWorkbook(reports) {
+  const workbook = XLSX.utils.book_new();
+  
+  Object.entries(reports).forEach(([sheetName, data]) => {
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+  });
+  
+  return workbook;
 }
