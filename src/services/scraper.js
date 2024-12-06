@@ -25,37 +25,56 @@ export async function scrapeFinancialData(companyId) {
 }
 
 async function scrapeBalanceSheet(companyId, years) {
-  const data = [];
-  for (const year of years) {
-    const report = await fetchFinancialReport(companyId, year, REPORT_TYPES.BALANCE_SHEET);
-    data.push(processBalanceSheetData(report, year));
-  }
-  return data;
+  const data = await Promise.all(
+    years.map(year => fetchFinancialReport(companyId, year, REPORT_TYPES.BALANCE_SHEET)
+      .then(report => processBalanceSheetData(report, year)))
+  );
+  return transformDataForExcel(data);
 }
 
 async function scrapeIncomeStatement(companyId, years) {
-  const data = [];
-  for (const year of years) {
-    const report = await fetchFinancialReport(companyId, year, REPORT_TYPES.INCOME_STATEMENT);
-    data.push(processIncomeStatementData(report, year));
-  }
-  return data;
+  const data = await Promise.all(
+    years.map(year => fetchFinancialReport(companyId, year, REPORT_TYPES.INCOME_STATEMENT)
+      .then(report => processIncomeStatementData(report, year)))
+  );
+  return transformDataForExcel(data);
 }
 
 async function scrapeCashFlow(companyId, years) {
-  const data = [];
-  for (const year of years) {
-    const report = await fetchFinancialReport(companyId, year, REPORT_TYPES.CASH_FLOW);
-    data.push(processCashFlowData(report, year));
-  }
-  return data;
+  const data = await Promise.all(
+    years.map(year => fetchFinancialReport(companyId, year, REPORT_TYPES.CASH_FLOW)
+      .then(report => processCashFlowData(report, year)))
+  );
+  return transformDataForExcel(data);
+}
+
+function transformDataForExcel(data) {
+  const years = data.map(item => item.year);
+  const fields = Object.keys(data[0]).filter(key => key !== 'year');
+  
+  return fields.map(field => {
+    const row = { '項目': field };
+    years.forEach((year, index) => {
+      row[year] = data[index][field];
+    });
+    return row;
+  });
 }
 
 function generateExcelWorkbook(reports) {
   const workbook = XLSX.utils.book_new();
   
   Object.entries(reports).forEach(([sheetName, data]) => {
-    const worksheet = XLSX.utils.json_to_sheet(data);
+    const worksheet = XLSX.utils.json_to_sheet(data, {
+      header: ['項目', ...data[0] ? Object.keys(data[0]).filter(key => key !== '項目') : []],
+    });
+    
+    const columnWidths = [
+      { wch: 30 },
+      ...Array(data[0] ? Object.keys(data[0]).length - 1 : 0).fill({ wch: 15 })
+    ];
+    worksheet['!cols'] = columnWidths;
+
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   });
   
